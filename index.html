@@ -1,0 +1,305 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Audit Snap Batch</title>
+    <!-- JSZip for creating Zip files entirely in the browser -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
+    <style>
+        :root {
+            --bg: #121212; --surface: #1e1e1e; --text: #ffffff;
+            --primary: #2196F3; --danger: #f44336; --success: #4CAF50; --chip-bg: #333;
+        }
+        body {
+            font-family: system-ui, -apple-system, sans-serif;
+            background-color: var(--bg); color: var(--text);
+            margin: 0; padding: 15px; display: flex; flex-direction: column; gap: 15px; box-sizing: border-box;
+        }
+        h2, h3 { margin: 0; text-align: center; }
+        
+        .header { display: flex; justify-content: space-between; align-items: center; }
+        .settings-btn { background: none; border: none; font-size: 24px; cursor: pointer; color: #aaa; }
+        
+        input[type="file"] { display: none; }
+        
+        .btn {
+            padding: 16px; font-size: 18px; font-weight: bold; border: none; border-radius: 8px;
+            cursor: pointer; text-align: center; width: 100%; box-sizing: border-box; color: white;
+        }
+        .btn-camera { background-color: var(--surface); color: var(--text); border: 2px dashed #555; padding: 25px; font-size: 20px;}
+        .btn-save { background-color: var(--primary); }
+        .btn-danger { background-color: var(--danger); }
+        .btn-zip { background-color: var(--success); padding: 20px; font-size: 22px; }
+        
+        input[type="text"], input[type="number"] {
+            width: 100%; padding: 15px; font-size: 18px; border-radius: 8px;
+            border: 1px solid #555; background: var(--surface); color: var(--text); box-sizing: border-box;
+        }
+        
+        .chip-container { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 5px; }
+        .chip {
+            background: var(--chip-bg); padding: 10px 14px; border-radius: 20px;
+            font-size: 14px; display: flex; align-items: center; gap: 8px; border: 1px solid #444;
+        }
+        .quick-chip { background: var(--surface); border-color: var(--primary); cursor: pointer; font-weight: bold;}
+        .chip-delete { color: var(--danger); font-weight: bold; cursor: pointer; padding: 0 5px;}
+
+        .section { background: #1a1a1a; padding: 15px; border-radius: 8px; border: 1px solid #333; }
+        .hidden { display: none !important; }
+
+        #preview { max-width: 100%; max-height: 45vh; object-fit: contain; border-radius: 8px; margin: 0 auto; display: block;}
+        #progress { text-align: center; font-size: 16px; font-weight: bold; color: var(--primary); margin: 0;}
+        #status { text-align: center; font-size: 14px; color: #aaa; margin: 0;}
+        
+        .flex-row { display: flex; gap: 10px; }
+    </style>
+</head>
+<body>
+
+    <div class="header">
+        <h2>Audit Snap</h2>
+        <button class="settings-btn" onclick="toggleSettings()">⚙️</button>
+    </div>
+
+    <!-- Settings Panel -->
+    <div id="settingsPanel" class="section hidden">
+        <h3>Compression Settings</h3>
+        <label>Max Resolution (px):</label>
+        <input type="number" id="setRes" value="2048" style="margin-bottom: 10px;">
+        <label>Quality (1-100%):</label>
+        <input type="number" id="setQual" value="50">
+        <button class="btn btn-save" style="margin-top: 15px; display:block;" onclick="saveSettings()">Save Settings</button>
+    </div>
+
+    <!-- Start Screen: Select Files & Manage Keywords -->
+    <div id="startScreen">
+        <!-- Notice the 'multiple' attribute allows selecting 15 photos at once -->
+        <label class="btn btn-camera" for="fileInput">📂 Select Photos</label>
+        <input type="file" id="fileInput" accept="image/*" multiple>
+
+        <div class="section" style="margin-top: 20px;">
+            <h3>Manage Keywords</h3>
+            <div class="flex-row" style="margin-top: 10px;">
+                <input type="text" id="newKeyword" placeholder="Add keyword...">
+                <button class="btn" style="width: auto; background: var(--surface); border: 1px solid #555;" onclick="addManualKeyword()">Add</button>
+            </div>
+            <div id="keywordList" class="chip-container" style="margin-top: 15px;"></div>
+        </div>
+    </div>
+
+    <!-- Review Screen: Renaming the Queue -->
+    <div id="reviewScreen" class="hidden" style="display: flex; flex-direction: column; gap: 12px;">
+        <p id="progress">Image 1 of 10</p>
+        <p id="status">Compressing...</p>
+        <img id="preview" alt="Preview">
+        
+        <input type="text" id="sysName" placeholder="System Name (e.g. Powershell)">
+        <div id="quickTapContainer" class="chip-container"></div>
+
+        <div class="flex-row">
+            <button class="btn btn-save" onclick="processCurrent(false)">Compliant</button>
+            <button class="btn btn-danger" onclick="processCurrent(true)">NON-Compliant</button>
+        </div>
+    </div>
+
+    <!-- Finish Screen: Download ZIP -->
+    <div id="finishScreen" class="hidden section" style="text-align: center;">
+        <h3>✅ Batch Complete!</h3>
+        <p id="zipStatus">Ready to download.</p>
+        <button class="btn btn-zip" onclick="downloadZip()">📦 Download ZIP</button>
+        <button class="btn" style="margin-top:15px; background: var(--surface); border: 1px solid #555;" onclick="resetApp()">Start New Batch</button>
+    </div>
+
+    <script>
+        // DOM Elements
+        const screens = {
+            start: document.getElementById('startScreen'),
+            review: document.getElementById('reviewScreen'),
+            finish: document.getElementById('finishScreen'),
+            settings: document.getElementById('settingsPanel')
+        };
+        const els = {
+            fileInput: document.getElementById('fileInput'),
+            preview: document.getElementById('preview'),
+            sysName: document.getElementById('sysName'),
+            progress: document.getElementById('progress'),
+            status: document.getElementById('status'),
+            zipStatus: document.getElementById('zipStatus')
+        };
+
+        // State Variables
+        let history = JSON.parse(localStorage.getItem('auditSysNames') || '[]');
+        let appSettings = JSON.parse(localStorage.getItem('auditSettings') || '{"res":2048, "qual":50}');
+        let imageQueue = []; // Array of original File objects
+        let processedImages = []; // Array of {filename, blob}
+        let currentIndex = 0;
+        let currentCompressedBlob = null; // Holds the compressed version of the current image
+
+        // --- Initialization ---
+        document.getElementById('setRes').value = appSettings.res;
+        document.getElementById('setQual').value = appSettings.qual;
+        renderKeywords();
+
+        // --- Settings ---
+        function toggleSettings() { screens.settings.classList.toggle('hidden'); }
+        function saveSettings() {
+            appSettings.res = parseInt(document.getElementById('setRes').value);
+            appSettings.qual = parseInt(document.getElementById('setQual').value);
+            localStorage.setItem('auditSettings', JSON.stringify(appSettings));
+            screens.settings.classList.add('hidden');
+            alert("Settings Saved!");
+        }
+
+        // --- Keywords ---
+        function renderKeywords() {
+            const list = document.getElementById('keywordList');
+            const quickTap = document.getElementById('quickTapContainer');
+            list.innerHTML = ''; quickTap.innerHTML = '';
+            
+            history.forEach(kw => {
+                let chip = document.createElement('div');
+                chip.className = 'chip';
+                chip.innerHTML = `<span>${kw}</span> <span class="chip-delete" onclick="removeKeyword('${kw}')">X</span>`;
+                list.appendChild(chip);
+
+                let qChip = document.createElement('div');
+                qChip.className = 'chip quick-chip';
+                qChip.innerText = kw;
+                qChip.onclick = () => els.sysName.value = kw;
+                quickTap.appendChild(qChip);
+            });
+        }
+        function addManualKeyword() {
+            let kw = document.getElementById('newKeyword').value.trim();
+            if (kw && !history.includes(kw)) {
+                history.push(kw);
+                localStorage.setItem('auditSysNames', JSON.stringify(history));
+                renderKeywords();
+                document.getElementById('newKeyword').value = '';
+            }
+        }
+        function removeKeyword(kw) {
+            history = history.filter(item => item !== kw);
+            localStorage.setItem('auditSysNames', JSON.stringify(history));
+            renderKeywords();
+        }
+
+        // --- Queue Logic ---
+        els.fileInput.addEventListener('change', function(e) {
+            const files = e.target.files;
+            if (files.length === 0) return;
+
+            imageQueue = Array.from(files);
+            processedImages = [];
+            currentIndex = 0;
+
+            screens.start.classList.add('hidden');
+            screens.review.classList.remove('hidden');
+            
+            loadNextImage();
+        });
+
+        function loadNextImage() {
+            if (currentIndex >= imageQueue.length) {
+                // Queue is empty, go to finish screen
+                screens.review.classList.add('hidden');
+                screens.finish.classList.remove('hidden');
+                els.zipStatus.innerText = `${processedImages.length} images ready for ZIP.`;
+                return;
+            }
+
+            els.sysName.value = '';
+            els.progress.innerText = `Image ${currentIndex + 1} of ${imageQueue.length}`;
+            els.status.innerText = "Compressing...";
+            els.sysName.focus();
+
+            const file = imageQueue[currentIndex];
+            const img = new Image();
+            
+            img.onload = function() {
+                const canvas = document.createElement('canvas');
+                const ctx = canvas.getContext('2d');
+
+                let ratio = Math.min(appSettings.res / img.width, appSettings.res / img.height, 1);
+                canvas.width = img.width * ratio;
+                canvas.height = img.height * ratio;
+
+                ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+                
+                // Convert quality from 1-100 to 0.0-1.0
+                let qualityDecimal = appSettings.qual / 100;
+
+                canvas.toBlob(function(blob) {
+                    currentCompressedBlob = blob;
+                    els.preview.src = URL.createObjectURL(blob);
+                    
+                    let originalMB = (file.size / 1024 / 1024).toFixed(2);
+                    let newKB = (blob.size / 1024).toFixed(0);
+                    els.status.innerText = `Compressed: ${originalMB}MB ➔ ${newKB}KB`;
+                }, 'image/jpeg', qualityDecimal);
+            };
+            img.src = URL.createObjectURL(file);
+        }
+
+        // --- Save Current Image Logic ---
+        function processCurrent(isNonCompliant) {
+            let baseName = els.sysName.value.trim();
+            if (!baseName) return alert("Please enter or tap a System Name!");
+
+            // Auto-save keyword
+            if (!history.includes(baseName)) {
+                history.push(baseName);
+                localStorage.setItem('auditSysNames', JSON.stringify(history));
+                renderKeywords();
+            }
+
+            // Construct File Name
+            let finalName = isNonCompliant ? `${baseName} NON-Compliant.jpg` : `${baseName}.jpg`;
+
+            // Push to processed array
+            processedImages.push({
+                name: finalName,
+                blob: currentCompressedBlob
+            });
+
+            // Move to next
+            currentIndex++;
+            loadNextImage();
+        }
+
+        // --- ZIP Generation ---
+        function downloadZip() {
+            els.zipStatus.innerText = "Generating ZIP file, please wait...";
+            
+            const zip = new JSZip();
+            
+            // Add all blobs to the zip
+            processedImages.forEach(img => {
+                zip.file(img.name, img.blob);
+            });
+
+            // Generate the zip and trigger download
+            zip.generateAsync({type:"blob"}).then(function(content) {
+                let dateStr = new Date().toISOString().split('T')[0];
+                let zipName = `Audit_Export_${dateStr}.zip`;
+
+                let a = document.createElement('a');
+                a.href = URL.createObjectURL(content);
+                a.download = zipName;
+                document.body.appendChild(a);
+                a.click();
+                document.body.removeChild(a);
+
+                els.zipStatus.innerText = "✅ Downloaded successfully!";
+            });
+        }
+
+        function resetApp() {
+            els.fileInput.value = '';
+            screens.finish.classList.add('hidden');
+            screens.start.classList.remove('hidden');
+        }
+    </script>
+</body>
+</html>
