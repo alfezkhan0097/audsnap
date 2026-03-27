@@ -1,0 +1,214 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <!-- Web App Manifest for Android Homescreen support -->
+    <meta name="theme-color" content="#121212">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <title>Audit Snap</title>
+    <style>
+        :root {
+            --bg: #121212; --surface: #1e1e1e; --text: #ffffff;
+            --primary: #2196F3; --danger: #f44336; --chip-bg: #333;
+        }
+        body {
+            font-family: system-ui, -apple-system, sans-serif;
+            background-color: var(--bg); color: var(--text);
+            margin: 0; padding: 15px; display: flex; flex-direction: column; gap: 15px; box-sizing: border-box;
+        }
+        h2, h3 { margin: 0; text-align: center; }
+        
+        input[type="file"] { display: none; }
+        
+        .btn {
+            padding: 16px; font-size: 18px; font-weight: bold; border: none; border-radius: 8px;
+            cursor: pointer; text-align: center; width: 100%; box-sizing: border-box;
+        }
+        .btn-camera { background-color: var(--surface); color: var(--text); border: 2px solid #555; padding: 25px; font-size: 22px;}
+        .btn-save { background-color: var(--primary); color: white; display: none; }
+        .btn-danger { background-color: var(--danger); color: white; display: none; }
+        
+        input[type="text"] {
+            width: 100%; padding: 15px; font-size: 18px; border-radius: 8px;
+            border: 1px solid #555; background: var(--surface); color: var(--text); box-sizing: border-box;
+        }
+        
+        /* Keyword Chips UI */
+        .chip-container { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 5px; }
+        .chip {
+            background: var(--chip-bg); padding: 10px 14px; border-radius: 20px;
+            font-size: 14px; display: flex; align-items: center; gap: 8px; border: 1px solid #444;
+        }
+        .quick-chip { background: var(--surface); border-color: var(--primary); cursor: pointer; font-weight: bold;}
+        .chip-delete { color: var(--danger); font-weight: bold; cursor: pointer; padding: 0 5px;}
+
+        /* Sections */
+        .section { background: #1a1a1a; padding: 15px; border-radius: 8px; border: 1px solid #333; }
+        .hidden { display: none !important; }
+
+        #preview { max-width: 100%; max-height: 40vh; object-fit: contain; border-radius: 8px; margin: 0 auto; display: none;}
+        #status { text-align: center; font-size: 14px; color: #aaa; margin: 0;}
+    </style>
+</head>
+<body>
+
+    <h2>Audit Snap</h2>
+
+    <!-- Take Photo Section -->
+    <label class="btn btn-camera" for="cameraInput">📸 Take Photo</label>
+    <input type="file" id="cameraInput" accept="image/*" capture="environment">
+
+    <!-- Active Image Workspace (Hidden until photo taken) -->
+    <div id="workspace" class="hidden" style="display: flex; flex-direction: column; gap: 12px;">
+        <p id="status"></p>
+        <img id="preview" alt="Preview">
+        
+        <input type="text" id="sysName" placeholder="System Name (e.g. Powershell)">
+        <!-- Quick Tap Chips for fast filling -->
+        <div id="quickTapContainer" class="chip-container"></div>
+
+        <button class="btn btn-save" id="btnSaveNormal">Save Compliant</button>
+        <button class="btn btn-danger" id="btnSaveNonComp">Save NON-Compliant</button>
+    </div>
+
+    <!-- Keyword Manager Section -->
+    <div class="section" id="keywordManager">
+        <h3>Manage Keywords</h3>
+        <div style="display: flex; gap: 10px; margin-top: 10px;">
+            <input type="text" id="newKeyword" placeholder="Add keyword...">
+            <button class="btn" style="width: auto; background: var(--surface); color: white; padding: 10px 20px; border: 1px solid #555;" onclick="addManualKeyword()">Add</button>
+        </div>
+        <div id="keywordList" class="chip-container" style="margin-top: 15px;"></div>
+    </div>
+
+    <script>
+        const cameraInput = document.getElementById('cameraInput');
+        const preview = document.getElementById('preview');
+        const sysName = document.getElementById('sysName');
+        const statusTxt = document.getElementById('status');
+        const workspace = document.getElementById('workspace');
+        const keywordManager = document.getElementById('keywordManager');
+        
+        let compressedImageBlob = null;
+        let history = JSON.parse(localStorage.getItem('auditSysNames') || '[]');
+
+        // --- 1. Keyword Management (No Photo Needed) ---
+        function renderKeywords() {
+            const list = document.getElementById('keywordList');
+            const quickTap = document.getElementById('quickTapContainer');
+            list.innerHTML = ''; quickTap.innerHTML = '';
+            
+            history.forEach(kw => {
+                // Manager chips (with delete)
+                let chip = document.createElement('div');
+                chip.className = 'chip';
+                chip.innerHTML = `<span>${kw}</span> <span class="chip-delete" onclick="removeKeyword('${kw}')">X</span>`;
+                list.appendChild(chip);
+
+                // Quick Tap chips (in workspace)
+                let qChip = document.createElement('div');
+                qChip.className = 'chip quick-chip';
+                qChip.innerText = kw;
+                qChip.onclick = () => sysName.value = kw; // instantly fills textbox
+                quickTap.appendChild(qChip);
+            });
+        }
+
+        function addManualKeyword() {
+            let kw = document.getElementById('newKeyword').value.trim();
+            if (kw && !history.includes(kw)) {
+                history.push(kw);
+                localStorage.setItem('auditSysNames', JSON.stringify(history));
+                renderKeywords();
+                document.getElementById('newKeyword').value = ''; // clear input
+            }
+        }
+
+        function removeKeyword(kw) {
+            history = history.filter(item => item !== kw);
+            localStorage.setItem('auditSysNames', JSON.stringify(history));
+            renderKeywords();
+        }
+
+        renderKeywords(); // Load UI on startup
+
+        // --- 2. Camera & 2K Compression Logic ---
+        cameraInput.addEventListener('change', function(e) {
+            const file = e.target.files[0];
+            if (!file) return;
+
+            // Hide keyword manager, show workspace
+            keywordManager.classList.add('hidden');
+            workspace.classList.remove('hidden');
+            document.getElementById('btnSaveNormal').style.display = 'block';
+            document.getElementById('btnSaveNonComp').style.display = 'block';
+            preview.style.display = 'block';
+            statusTxt.innerText = "Processing 2K Image...";
+            
+            const img = new Image();
+            img.onload = function() {
+                const canvas = document.createElement('canvas');
+                const ctx = canvas.getContext('2d');
+
+                // NEW RESOLUTION: 2048px (2K). Keeps it incredibly sharp but drops file size.
+                const MAX_SIZE = 2048;
+                let ratio = Math.min(MAX_SIZE / img.width, MAX_SIZE / img.height, 1);
+                canvas.width = img.width * ratio;
+                canvas.height = img.height * ratio;
+
+                ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+                
+                // NEW QUALITY: 0.5 (50%). Will result in crisp ~500KB - 1MB files.
+                canvas.toBlob(function(blob) {
+                    compressedImageBlob = blob;
+                    preview.src = URL.createObjectURL(blob);
+                    
+                    let originalMB = (file.size / 1024 / 1024).toFixed(2);
+                    let newKB = (blob.size / 1024).toFixed(0);
+                    statusTxt.innerText = `Compressed: ${originalMB}MB ➔ ${newKB}KB`;
+                    
+                    sysName.focus();
+                }, 'image/jpeg', 0.5);
+            };
+            img.src = URL.createObjectURL(file);
+        });
+
+        // --- 3. Save Logic ---
+        function saveImage(isNonCompliant) {
+            let baseName = sysName.value.trim();
+            if (!baseName) return alert("Please enter or tap a System Name!");
+
+            // Auto-save new words typed during photo step
+            if (!history.includes(baseName)) {
+                history.push(baseName);
+                localStorage.setItem('auditSysNames', JSON.stringify(history));
+                renderKeywords();
+            }
+
+            let finalName = isNonCompliant ? `${baseName} NON-Compliant.jpg` : `${baseName}.jpg`;
+            let objectUrl = URL.createObjectURL(compressedImageBlob);
+            let a = document.createElement('a');
+            a.href = objectUrl;
+            a.download = finalName;
+            
+            document.body.appendChild(a);
+            a.click();
+            document.body.removeChild(a);
+
+            URL.revokeObjectURL(objectUrl);
+            resetUI();
+        }
+
+        function resetUI() {
+            cameraInput.value = ''; sysName.value = '';
+            workspace.classList.add('hidden');
+            keywordManager.classList.remove('hidden');
+            compressedImageBlob = null;
+        }
+
+        document.getElementById('btnSaveNormal').addEventListener('click', () => saveImage(false));
+        document.getElementById('btnSaveNonComp').addEventListener('click', () => saveImage(true));
+    </script>
+</body>
+</html>
