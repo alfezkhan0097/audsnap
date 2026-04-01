@@ -3,18 +3,20 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>Audit Snap Batch</title>
-    <!-- JSZip for creating Zip files entirely in the browser -->
+    <title>Audit Snap & Organizer</title>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
     <style>
         :root {
             --bg: #121212; --surface: #1e1e1e; --text: #ffffff;
             --primary: #2196F3; --danger: #f44336; --success: #4CAF50; --chip-bg: #333;
+            --nav-bg: #0a0a0a;
         }
         body {
             font-family: system-ui, -apple-system, sans-serif;
             background-color: var(--bg); color: var(--text);
-            margin: 0; padding: 15px; display: flex; flex-direction: column; gap: 15px; box-sizing: border-box;
+            margin: 0; padding: 15px; padding-bottom: 80px; /* Space for bottom tabs */
+            display: flex; flex-direction: column; gap: 15px; box-sizing: border-box;
+            min-height: 100vh;
         }
         h2, h3 { margin: 0; text-align: center; }
         
@@ -53,252 +55,285 @@
         #status { text-align: center; font-size: 14px; color: #aaa; margin: 0;}
         
         .flex-row { display: flex; gap: 10px; }
+
+        /* --- NEW: Bottom Tabs CSS --- */
+        .tab-content { display: none; flex-direction: column; gap: 15px; }
+        .tab-content.active { display: flex; }
+        
+        .bottom-nav {
+            position: fixed; bottom: 0; left: 0; width: 100%; height: 70px;
+            background-color: var(--nav-bg); border-top: 1px solid #333;
+            display: flex; z-index: 1000;
+        }
+        .nav-btn {
+            flex: 1; background: none; border: none; color: #888;
+            font-size: 16px; font-weight: bold; cursor: pointer;
+            display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 4px;
+        }
+        .nav-btn.active { color: var(--primary); }
+        .nav-icon { font-size: 24px; }
     </style>
 </head>
 <body>
 
-    <div class="header">
-        <h2>Audit Snap</h2>
-        <button class="settings-btn" onclick="toggleSettings()">⚙️</button>
-    </div>
+    <!-- ========================================== -->
+    <!-- TAB 1: THE AUDIT SNAPPER (YOUR EXISTING APP) -->
+    <!-- ========================================== -->
+    <div id="tab1" class="tab-content active">
+        <div class="header">
+            <h2>Audit Snap</h2>
+            <button class="settings-btn" onclick="toggleSettings()">⚙️</button>
+        </div>
 
-    <!-- Settings Panel -->
-    <div id="settingsPanel" class="section hidden">
-        <h3>Compression Settings</h3>
-        <label>Max Resolution (px):</label>
-        <input type="number" id="setRes" value="2048" style="margin-bottom: 10px;">
-        <label>Quality (1-100%):</label>
-        <input type="number" id="setQual" value="50">
-        <button class="btn btn-save" style="margin-top: 15px; display:block;" onclick="saveSettings()">Save Settings</button>
-    </div>
+        <div id="settingsPanel" class="section hidden">
+            <h3>Compression Settings</h3>
+            <label>Max Resolution (px):</label>
+            <input type="number" id="setRes" value="2048" style="margin-bottom: 10px;">
+            <label>Quality (1-100%):</label>
+            <input type="number" id="setQual" value="50">
+            <button class="btn btn-save" style="margin-top: 15px; display:block;" onclick="saveSettings()">Save Settings</button>
+        </div>
 
-    <!-- Start Screen: Select Files & Manage Keywords -->
-    <div id="startScreen">
-        <!-- Notice the 'multiple' attribute allows selecting 15 photos at once -->
-        <label class="btn btn-camera" for="fileInput">📂 Select Photos</label>
-        <input type="file" id="fileInput" accept="image/*" multiple>
+        <div id="startScreen">
+            <label class="btn btn-camera" for="fileInput">📸 Select Photos for Batch</label>
+            <input type="file" id="fileInput" accept="image/*" multiple>
 
-        <div class="section" style="margin-top: 20px;">
-            <h3>Manage Keywords</h3>
-            <div class="flex-row" style="margin-top: 10px;">
-                <input type="text" id="newKeyword" placeholder="Add keyword...">
-                <button class="btn" style="width: auto; background: var(--surface); border: 1px solid #555;" onclick="addManualKeyword()">Add</button>
+            <div class="section" style="margin-top: 20px;">
+                <h3>Manage Keywords</h3>
+                <div class="flex-row" style="margin-top: 10px;">
+                    <input type="text" id="newKeyword" placeholder="Add keyword...">
+                    <button class="btn" style="width: auto; background: var(--surface); border: 1px solid #555;" onclick="addManualKeyword()">Add</button>
+                </div>
+                <div id="keywordList" class="chip-container" style="margin-top: 15px;"></div>
             </div>
-            <div id="keywordList" class="chip-container" style="margin-top: 15px;"></div>
+        </div>
+
+        <div id="reviewScreen" class="hidden">
+            <p id="progress">Image 1 of 10</p>
+            <p id="status">Compressing...</p>
+            <img id="preview" alt="Preview">
+            
+            <input type="text" id="sysName" placeholder="System Name (e.g. Powershell)">
+            <div id="quickTapContainer" class="chip-container"></div>
+
+            <div class="flex-row">
+                <button class="btn btn-save" onclick="processCurrent(false)">Compliant</button>
+                <button class="btn btn-danger" onclick="processCurrent(true)">NON-Compliant</button>
+            </div>
+        </div>
+
+        <div id="finishScreen" class="hidden section" style="text-align: center;">
+            <h3>✅ Batch Complete!</h3>
+            <p id="zipStatus">Ready to download.</p>
+            <button class="btn btn-zip" onclick="downloadZip()">📦 Download ZIP</button>
+            <button class="btn" style="margin-top:15px; background: var(--surface); border: 1px solid #555;" onclick="resetApp()">Start New Batch</button>
         </div>
     </div>
 
-    <!-- Review Screen: Renaming the Queue -->
-    <div id="reviewScreen" class="hidden" style="display: flex; flex-direction: column; gap: 12px;">
-        <p id="progress">Image 1 of 10</p>
-        <p id="status">Compressing...</p>
-        <img id="preview" alt="Preview">
+    <!-- ========================================== -->
+    <!-- TAB 2: THE NEW COMPLIANCE ORGANIZER        -->
+    <!-- ========================================== -->
+    <div id="tab2" class="tab-content">
+        <div class="header">
+            <h2>Organizer</h2>
+        </div>
         
-        <input type="text" id="sysName" placeholder="System Name (e.g. Powershell)">
-        <div id="quickTapContainer" class="chip-container"></div>
+        <div class="section" style="text-align: center;">
+            <p style="color: #aaa; font-size: 15px; margin-top: 0;">
+                Select the <b>parent folder</b> that contains your desktop folders (e.g., desktop-1, desktop-2). The app will separate them by Compliance.
+            </p>
+            
+            <!-- webkitdirectory allows folder selection -->
+            <label class="btn btn-camera" for="orgInput">📂 Select Master Folder</label>
+            <input type="file" id="orgInput" webkitdirectory directory multiple>
+        </div>
 
-        <div class="flex-row">
-            <button class="btn btn-save" onclick="processCurrent(false)">Compliant</button>
-            <button class="btn btn-danger" onclick="processCurrent(true)">NON-Compliant</button>
+        <div id="orgResults" class="section hidden" style="text-align: center;">
+            <h3 id="orgSummaryTitle">✅ Folders Processed</h3>
+            <p id="orgSummaryText" style="color: #aaa;">Found X images across Y hosts.</p>
+            <button class="btn btn-zip" id="btnOrgZip" onclick="downloadOrgZip()">📦 Download Organized ZIP</button>
         </div>
     </div>
 
-    <!-- Finish Screen: Download ZIP -->
-    <div id="finishScreen" class="hidden section" style="text-align: center;">
-        <h3>✅ Batch Complete!</h3>
-        <p id="zipStatus">Ready to download.</p>
-        <button class="btn btn-zip" onclick="downloadZip()">📦 Download ZIP</button>
-        <button class="btn" style="margin-top:15px; background: var(--surface); border: 1px solid #555;" onclick="resetApp()">Start New Batch</button>
+    <!-- ========================================== -->
+    <!-- BOTTOM NAVIGATION TABS                     -->
+    <!-- ========================================== -->
+    <div class="bottom-nav">
+        <button class="nav-btn active" id="nav1" onclick="switchTab(1)">
+            <span class="nav-icon">📸</span> Snap
+        </button>
+        <button class="nav-btn" id="nav2" onclick="switchTab(2)">
+            <span class="nav-icon">🗂️</span> Organize
+        </button>
     </div>
 
     <script>
-        // DOM Elements
+        // --- NEW: Tab Switching Logic ---
+        function switchTab(tabNum) {
+            document.getElementById('tab1').classList.remove('active');
+            document.getElementById('tab2').classList.remove('active');
+            document.getElementById('nav1').classList.remove('active');
+            document.getElementById('nav2').classList.remove('active');
+            
+            document.getElementById('tab' + tabNum).classList.add('active');
+            document.getElementById('nav' + tabNum).classList.add('active');
+        }
+
+        // ==========================================
+        // TAB 1 JAVASCRIPT: THE AUDIT SNAPPER (Unchanged)
+        // ==========================================
         const screens = {
-            start: document.getElementById('startScreen'),
-            review: document.getElementById('reviewScreen'),
-            finish: document.getElementById('finishScreen'),
-            settings: document.getElementById('settingsPanel')
+            start: document.getElementById('startScreen'), review: document.getElementById('reviewScreen'),
+            finish: document.getElementById('finishScreen'), settings: document.getElementById('settingsPanel')
         };
         const els = {
-            fileInput: document.getElementById('fileInput'),
-            preview: document.getElementById('preview'),
-            sysName: document.getElementById('sysName'),
-            progress: document.getElementById('progress'),
-            status: document.getElementById('status'),
-            zipStatus: document.getElementById('zipStatus')
+            fileInput: document.getElementById('fileInput'), preview: document.getElementById('preview'),
+            sysName: document.getElementById('sysName'), progress: document.getElementById('progress'),
+            status: document.getElementById('status'), zipStatus: document.getElementById('zipStatus')
         };
 
-        // State Variables
         let history = JSON.parse(localStorage.getItem('auditSysNames') || '[]');
         let appSettings = JSON.parse(localStorage.getItem('auditSettings') || '{"res":2048, "qual":50}');
-        let imageQueue = []; // Array of original File objects
-        let processedImages = []; // Array of {filename, blob}
-        let currentIndex = 0;
-        let currentCompressedBlob = null; // Holds the compressed version of the current image
+        let imageQueue = []; let processedImages = []; let currentIndex = 0; let currentCompressedBlob = null;
 
-        // --- Initialization ---
         document.getElementById('setRes').value = appSettings.res;
         document.getElementById('setQual').value = appSettings.qual;
         renderKeywords();
 
-        // --- Settings ---
         function toggleSettings() { screens.settings.classList.toggle('hidden'); }
         function saveSettings() {
             appSettings.res = parseInt(document.getElementById('setRes').value);
             appSettings.qual = parseInt(document.getElementById('setQual').value);
             localStorage.setItem('auditSettings', JSON.stringify(appSettings));
-            screens.settings.classList.add('hidden');
-            alert("Settings Saved!");
+            screens.settings.classList.add('hidden'); alert("Settings Saved!");
         }
 
-        // --- Keywords ---
         function renderKeywords() {
-            const list = document.getElementById('keywordList');
-            const quickTap = document.getElementById('quickTapContainer');
+            const list = document.getElementById('keywordList'); const quickTap = document.getElementById('quickTapContainer');
             list.innerHTML = ''; quickTap.innerHTML = '';
-            
             history.forEach(kw => {
-                let chip = document.createElement('div');
-                chip.className = 'chip';
+                let chip = document.createElement('div'); chip.className = 'chip';
                 chip.innerHTML = `<span>${kw}</span> <span class="chip-delete" onclick="removeKeyword('${kw}')">X</span>`;
                 list.appendChild(chip);
 
-                let qChip = document.createElement('div');
-                qChip.className = 'chip quick-chip';
-                qChip.innerText = kw;
-                qChip.onclick = () => els.sysName.value = kw;
+                let qChip = document.createElement('div'); qChip.className = 'chip quick-chip';
+                qChip.innerText = kw; qChip.onclick = () => els.sysName.value = kw;
                 quickTap.appendChild(qChip);
             });
         }
         function addManualKeyword() {
             let kw = document.getElementById('newKeyword').value.trim();
-            if (kw && !history.includes(kw)) {
-                history.push(kw);
-                localStorage.setItem('auditSysNames', JSON.stringify(history));
-                renderKeywords();
-                document.getElementById('newKeyword').value = '';
-            }
+            if (kw && !history.includes(kw)) { history.push(kw); localStorage.setItem('auditSysNames', JSON.stringify(history)); renderKeywords(); document.getElementById('newKeyword').value = ''; }
         }
-        function removeKeyword(kw) {
-            history = history.filter(item => item !== kw);
-            localStorage.setItem('auditSysNames', JSON.stringify(history));
-            renderKeywords();
-        }
+        function removeKeyword(kw) { history = history.filter(item => item !== kw); localStorage.setItem('auditSysNames', JSON.stringify(history)); renderKeywords(); }
 
-        // --- Queue Logic ---
         els.fileInput.addEventListener('change', function(e) {
-            const files = e.target.files;
-            if (files.length === 0) return;
-
-            imageQueue = Array.from(files);
-            processedImages = [];
-            currentIndex = 0;
-
-            screens.start.classList.add('hidden');
-            screens.review.classList.remove('hidden');
-            
-            loadNextImage();
+            const files = e.target.files; if (files.length === 0) return;
+            imageQueue = Array.from(files); processedImages = []; currentIndex = 0;
+            screens.start.classList.add('hidden'); screens.review.classList.remove('hidden'); loadNextImage();
         });
 
         function loadNextImage() {
             if (currentIndex >= imageQueue.length) {
-                // Queue is empty, go to finish screen
-                screens.review.classList.add('hidden');
-                screens.finish.classList.remove('hidden');
-                els.zipStatus.innerText = `${processedImages.length} images ready for ZIP.`;
-                return;
+                screens.review.classList.add('hidden'); screens.finish.classList.remove('hidden');
+                els.zipStatus.innerText = `${processedImages.length} images ready for ZIP.`; return;
             }
-
-            els.sysName.value = '';
-            els.progress.innerText = `Image ${currentIndex + 1} of ${imageQueue.length}`;
-            els.status.innerText = "Compressing...";
-            els.sysName.focus();
-
-            const file = imageQueue[currentIndex];
-            const img = new Image();
-            
+            els.sysName.value = ''; els.progress.innerText = `Image ${currentIndex + 1} of ${imageQueue.length}`;
+            els.status.innerText = "Compressing..."; els.sysName.focus();
+            const file = imageQueue[currentIndex]; const img = new Image();
             img.onload = function() {
-                const canvas = document.createElement('canvas');
-                const ctx = canvas.getContext('2d');
-
+                const canvas = document.createElement('canvas'); const ctx = canvas.getContext('2d');
                 let ratio = Math.min(appSettings.res / img.width, appSettings.res / img.height, 1);
-                canvas.width = img.width * ratio;
-                canvas.height = img.height * ratio;
-
+                canvas.width = img.width * ratio; canvas.height = img.height * ratio;
                 ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
-                
-                // Convert quality from 1-100 to 0.0-1.0
-                let qualityDecimal = appSettings.qual / 100;
-
                 canvas.toBlob(function(blob) {
-                    currentCompressedBlob = blob;
-                    els.preview.src = URL.createObjectURL(blob);
-                    
-                    let originalMB = (file.size / 1024 / 1024).toFixed(2);
-                    let newKB = (blob.size / 1024).toFixed(0);
-                    els.status.innerText = `Compressed: ${originalMB}MB ➔ ${newKB}KB`;
-                }, 'image/jpeg', qualityDecimal);
+                    currentCompressedBlob = blob; els.preview.src = URL.createObjectURL(blob);
+                    els.status.innerText = `Compressed: ${(file.size / 1024 / 1024).toFixed(2)}MB ➔ ${(blob.size / 1024).toFixed(0)}KB`;
+                }, 'image/jpeg', appSettings.qual / 100);
             };
             img.src = URL.createObjectURL(file);
         }
 
-        // --- Save Current Image Logic ---
         function processCurrent(isNonCompliant) {
             let baseName = els.sysName.value.trim();
             if (!baseName) return alert("Please enter or tap a System Name!");
-
-            // Auto-save keyword
-            if (!history.includes(baseName)) {
-                history.push(baseName);
-                localStorage.setItem('auditSysNames', JSON.stringify(history));
-                renderKeywords();
-            }
-
-            // Construct File Name
-            let finalName = isNonCompliant ? `${baseName} NON-Compliant.jpg` : `${baseName}.jpg`;
-
-            // Push to processed array
-            processedImages.push({
-                name: finalName,
-                blob: currentCompressedBlob
-            });
-
-            // Move to next
-            currentIndex++;
-            loadNextImage();
+            if (!history.includes(baseName)) { history.push(baseName); localStorage.setItem('auditSysNames', JSON.stringify(history)); renderKeywords(); }
+            processedImages.push({ name: isNonCompliant ? `${baseName} NON-Compliant.jpg` : `${baseName}.jpg`, blob: currentCompressedBlob });
+            currentIndex++; loadNextImage();
         }
 
-        // --- ZIP Generation ---
         function downloadZip() {
             els.zipStatus.innerText = "Generating ZIP file, please wait...";
-            
             const zip = new JSZip();
-            
-            // Add all blobs to the zip
-            processedImages.forEach(img => {
-                zip.file(img.name, img.blob);
-            });
-
-            // Generate the zip and trigger download
+            processedImages.forEach(img => zip.file(img.name, img.blob));
             zip.generateAsync({type:"blob"}).then(function(content) {
-                let dateStr = new Date().toISOString().split('T')[0];
-                let zipName = `Audit_Export_${dateStr}.zip`;
-
-                let a = document.createElement('a');
-                a.href = URL.createObjectURL(content);
-                a.download = zipName;
-                document.body.appendChild(a);
-                a.click();
-                document.body.removeChild(a);
-
+                let a = document.createElement('a'); a.href = URL.createObjectURL(content);
+                a.download = `Audit_Export_${new Date().toISOString().split('T')[0]}.zip`;
+                document.body.appendChild(a); a.click(); document.body.removeChild(a);
                 els.zipStatus.innerText = "✅ Downloaded successfully!";
             });
         }
+        function resetApp() { els.fileInput.value = ''; screens.finish.classList.add('hidden'); screens.start.classList.remove('hidden'); }
 
-        function resetApp() {
-            els.fileInput.value = '';
-            screens.finish.classList.add('hidden');
-            screens.start.classList.remove('hidden');
+
+        // ==========================================
+        // TAB 2 JAVASCRIPT: THE NEW ORGANIZER
+        // ==========================================
+        let organizedZip = new JSZip();
+        
+        document.getElementById('orgInput').addEventListener('change', function(e) {
+            const files = e.target.files;
+            if (files.length === 0) return;
+
+            organizedZip = new JSZip(); // Reset ZIP instance
+            let hostnamesFound = new Set();
+            let validImageCount = 0;
+
+            for (let i = 0; i < files.length; i++) {
+                let file = files[i];
+                
+                // Only process images (ignores hidden system files like .DS_Store)
+                if (!file.type.startsWith('image/')) continue;
+
+                // webkitRelativePath looks like: "MyAudits/desktop-1/Powershell.jpg"
+                let pathParts = file.webkitRelativePath.split('/');
+                
+                // Extract the Hostname (the folder immediately containing the image)
+                // If the user selected files without a folder, fallback to "Unsorted"
+                let hostname = pathParts.length >= 2 ? pathParts[pathParts.length - 2] : "Unsorted";
+                hostnamesFound.add(hostname);
+
+                // Determine Compliance based on file name
+                let fileName = file.name;
+                let isNonCompliant = fileName.toLowerCase().includes('non-compliant');
+                
+                // Determine Top Level Folder
+                let topFolder = isNonCompliant ? "NON-Compliant" : "Compliant";
+
+                // Add to our new structured ZIP: e.g. "NON-Compliant/desktop-1/Powershell NON-Compliant.jpg"
+                organizedZip.folder(topFolder).folder(hostname).file(fileName, file);
+                validImageCount++;
+            }
+
+            // Update UI
+            document.getElementById('orgSummaryText').innerText = `Processed ${validImageCount} images across ${hostnamesFound.size} hostnames.`;
+            document.getElementById('orgResults').classList.remove('hidden');
+            document.getElementById('btnOrgZip').innerText = '📦 Download Organized ZIP';
+        });
+
+        function downloadOrgZip() {
+            let btn = document.getElementById('btnOrgZip');
+            btn.innerText = "Generating ZIP, please wait...";
+            
+            organizedZip.generateAsync({type:"blob"}).then(function(content) {
+                let a = document.createElement('a');
+                a.href = URL.createObjectURL(content);
+                a.download = `Organized_Audits_${new Date().toISOString().split('T')[0]}.zip`;
+                document.body.appendChild(a);
+                a.click();
+                document.body.removeChild(a);
+                btn.innerText = "✅ Downloaded Successfully!";
+            });
         }
     </script>
 </body>
