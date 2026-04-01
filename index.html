@@ -14,7 +14,7 @@
         body {
             font-family: system-ui, -apple-system, sans-serif;
             background-color: var(--bg); color: var(--text);
-            margin: 0; padding: 15px; padding-bottom: 80px; /* Space for bottom tabs */
+            margin: 0; padding: 15px; padding-bottom: 80px; 
             display: flex; flex-direction: column; gap: 15px; box-sizing: border-box;
             min-height: 100vh;
         }
@@ -50,13 +50,12 @@
         .section { background: #1a1a1a; padding: 15px; border-radius: 8px; border: 1px solid #333; }
         .hidden { display: none !important; }
 
-        #preview { max-width: 100%; max-height: 45vh; object-fit: contain; border-radius: 8px; margin: 0 auto; display: block;}
+        #preview { max-width: 100%; max-height: 40vh; object-fit: contain; border-radius: 8px; margin: 0 auto; display: block;}
         #progress { text-align: center; font-size: 16px; font-weight: bold; color: var(--primary); margin: 0;}
         #status { text-align: center; font-size: 14px; color: #aaa; margin: 0;}
         
         .flex-row { display: flex; gap: 10px; }
 
-        /* --- NEW: Bottom Tabs CSS --- */
         .tab-content { display: none; flex-direction: column; gap: 15px; }
         .tab-content.active { display: flex; }
         
@@ -76,9 +75,7 @@
 </head>
 <body>
 
-    <!-- ========================================== -->
-    <!-- TAB 1: THE AUDIT SNAPPER (YOUR EXISTING APP) -->
-    <!-- ========================================== -->
+    <!-- TAB 1: THE AUDIT SNAPPER -->
     <div id="tab1" class="tab-content active">
         <div class="header">
             <h2>Audit Snap</h2>
@@ -113,6 +110,9 @@
             <p id="status">Compressing...</p>
             <img id="preview" alt="Preview">
             
+            <!-- NEW: Hostname Box -->
+            <input type="text" id="hostName" placeholder="Hostname (e.g. desktop-1)" style="border-color: var(--primary);">
+            
             <input type="text" id="sysName" placeholder="System Name (e.g. Powershell)">
             <div id="quickTapContainer" class="chip-container"></div>
 
@@ -130,9 +130,7 @@
         </div>
     </div>
 
-    <!-- ========================================== -->
-    <!-- TAB 2: THE NEW COMPLIANCE ORGANIZER        -->
-    <!-- ========================================== -->
+    <!-- TAB 2: THE COMPLIANCE ORGANIZER -->
     <div id="tab2" class="tab-content">
         <div class="header">
             <h2>Organizer</h2>
@@ -140,24 +138,22 @@
         
         <div class="section" style="text-align: center;">
             <p style="color: #aaa; font-size: 15px; margin-top: 0;">
-                Select the <b>parent folder</b> that contains your desktop folders (e.g., desktop-1, desktop-2). The app will separate them by Compliance.
+                Because Android blocks folder reading, simply select <b>all your images</b> at once. The app will organize them into Compliance folders based on the Hostname in the file name!
             </p>
             
-            <!-- webkitdirectory allows folder selection -->
-            <label class="btn btn-camera" for="orgInput">📂 Select Master Folder</label>
-            <input type="file" id="orgInput" webkitdirectory directory multiple>
+            <!-- Changed from webkitdirectory to a standard multiple file selector -->
+            <label class="btn btn-camera" for="orgInput">📂 Select All Audit Images</label>
+            <input type="file" id="orgInput" accept="image/*" multiple>
         </div>
 
         <div id="orgResults" class="section hidden" style="text-align: center;">
-            <h3 id="orgSummaryTitle">✅ Folders Processed</h3>
+            <h3 id="orgSummaryTitle">✅ Files Processed</h3>
             <p id="orgSummaryText" style="color: #aaa;">Found X images across Y hosts.</p>
             <button class="btn btn-zip" id="btnOrgZip" onclick="downloadOrgZip()">📦 Download Organized ZIP</button>
         </div>
     </div>
 
-    <!-- ========================================== -->
-    <!-- BOTTOM NAVIGATION TABS                     -->
-    <!-- ========================================== -->
+    <!-- BOTTOM NAVIGATION TABS -->
     <div class="bottom-nav">
         <button class="nav-btn active" id="nav1" onclick="switchTab(1)">
             <span class="nav-icon">📸</span> Snap
@@ -168,7 +164,7 @@
     </div>
 
     <script>
-        // --- NEW: Tab Switching Logic ---
+        // --- Tab Switching Logic ---
         function switchTab(tabNum) {
             document.getElementById('tab1').classList.remove('active');
             document.getElementById('tab2').classList.remove('active');
@@ -180,7 +176,7 @@
         }
 
         // ==========================================
-        // TAB 1 JAVASCRIPT: THE AUDIT SNAPPER (Unchanged)
+        // TAB 1 JAVASCRIPT: THE AUDIT SNAPPER
         // ==========================================
         const screens = {
             start: document.getElementById('startScreen'), review: document.getElementById('reviewScreen'),
@@ -188,8 +184,9 @@
         };
         const els = {
             fileInput: document.getElementById('fileInput'), preview: document.getElementById('preview'),
-            sysName: document.getElementById('sysName'), progress: document.getElementById('progress'),
-            status: document.getElementById('status'), zipStatus: document.getElementById('zipStatus')
+            hostName: document.getElementById('hostName'), sysName: document.getElementById('sysName'), 
+            progress: document.getElementById('progress'), status: document.getElementById('status'), 
+            zipStatus: document.getElementById('zipStatus')
         };
 
         let history = JSON.parse(localStorage.getItem('auditSysNames') || '[]');
@@ -238,8 +235,13 @@
                 screens.review.classList.add('hidden'); screens.finish.classList.remove('hidden');
                 els.zipStatus.innerText = `${processedImages.length} images ready for ZIP.`; return;
             }
+            // Notice els.hostName is NOT cleared! It remembers your desktop name.
             els.sysName.value = ''; els.progress.innerText = `Image ${currentIndex + 1} of ${imageQueue.length}`;
-            els.status.innerText = "Compressing..."; els.sysName.focus();
+            els.status.innerText = "Compressing..."; 
+            
+            // Auto focus the right box
+            if(!els.hostName.value) els.hostName.focus(); else els.sysName.focus();
+
             const file = imageQueue[currentIndex]; const img = new Image();
             img.onload = function() {
                 const canvas = document.createElement('canvas'); const ctx = canvas.getContext('2d');
@@ -255,10 +257,16 @@
         }
 
         function processCurrent(isNonCompliant) {
+            let hName = els.hostName.value.trim() || "UnknownHost";
             let baseName = els.sysName.value.trim();
             if (!baseName) return alert("Please enter or tap a System Name!");
+            
             if (!history.includes(baseName)) { history.push(baseName); localStorage.setItem('auditSysNames', JSON.stringify(history)); renderKeywords(); }
-            processedImages.push({ name: isNonCompliant ? `${baseName} NON-Compliant.jpg` : `${baseName}.jpg`, blob: currentCompressedBlob });
+            
+            // Creates a file named like: "[desktop-1] Powershell NON-Compliant.jpg"
+            let finalName = isNonCompliant ? `[${hName}] ${baseName} NON-Compliant.jpg` : `[${hName}] ${baseName}.jpg`;
+            processedImages.push({ name: finalName, blob: currentCompressedBlob });
+            
             currentIndex++; loadNextImage();
         }
 
@@ -273,7 +281,7 @@
                 els.zipStatus.innerText = "✅ Downloaded successfully!";
             });
         }
-        function resetApp() { els.fileInput.value = ''; screens.finish.classList.add('hidden'); screens.start.classList.remove('hidden'); }
+        function resetApp() { els.fileInput.value = ''; els.hostName.value = ''; screens.finish.classList.add('hidden'); screens.start.classList.remove('hidden'); }
 
 
         // ==========================================
@@ -285,37 +293,35 @@
             const files = e.target.files;
             if (files.length === 0) return;
 
-            organizedZip = new JSZip(); // Reset ZIP instance
+            organizedZip = new JSZip(); 
             let hostnamesFound = new Set();
             let validImageCount = 0;
 
             for (let i = 0; i < files.length; i++) {
                 let file = files[i];
-                
-                // Only process images (ignores hidden system files like .DS_Store)
                 if (!file.type.startsWith('image/')) continue;
 
-                // webkitRelativePath looks like: "MyAudits/desktop-1/Powershell.jpg"
-                let pathParts = file.webkitRelativePath.split('/');
+                let fileName = file.name;
+                let hostname = "Unsorted";
                 
-                // Extract the Hostname (the folder immediately containing the image)
-                // If the user selected files without a folder, fallback to "Unsorted"
-                let hostname = pathParts.length >= 2 ? pathParts[pathParts.length - 2] : "Unsorted";
+                // Magic Regex: Extracts the text inside the [square brackets]
+                // e.g., "[BEFCPLI] Powershell.jpg" -> Extracts "BEFCPLI"
+                let match = fileName.match(/^\[(.*?)\]/);
+                if (match) {
+                    hostname = match[1];
+                }
+
                 hostnamesFound.add(hostname);
 
-                // Determine Compliance based on file name
-                let fileName = file.name;
+                // Determine Compliance
                 let isNonCompliant = fileName.toLowerCase().includes('non-compliant');
-                
-                // Determine Top Level Folder
                 let topFolder = isNonCompliant ? "NON-Compliant" : "Compliant";
 
-                // Add to our new structured ZIP: e.g. "NON-Compliant/desktop-1/Powershell NON-Compliant.jpg"
+                // Build the Zip
                 organizedZip.folder(topFolder).folder(hostname).file(fileName, file);
                 validImageCount++;
             }
 
-            // Update UI
             document.getElementById('orgSummaryText').innerText = `Processed ${validImageCount} images across ${hostnamesFound.size} hostnames.`;
             document.getElementById('orgResults').classList.remove('hidden');
             document.getElementById('btnOrgZip').innerText = '📦 Download Organized ZIP';
