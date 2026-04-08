@@ -98,7 +98,7 @@
             <div class="section" style="margin-top: 20px;">
                 <h3>Manage Keywords</h3>
                 <div class="flex-row" style="margin-top: 10px;">
-                    <input type="text" id="newKeyword" placeholder="Add keyword...">
+                    <input type="text" id="newKeyword" placeholder="Add keyword... (e.g. 3-Antivirus)">
                     <button class="btn" style="width: auto; background: var(--surface); border: 1px solid #555;" onclick="addManualKeyword()">Add</button>
                 </div>
                 <div id="keywordList" class="chip-container" style="margin-top: 15px;"></div>
@@ -110,10 +110,9 @@
             <p id="status">Compressing...</p>
             <img id="preview" alt="Preview">
             
-            <!-- NEW: Hostname Box -->
             <input type="text" id="hostName" placeholder="Hostname (e.g. desktop-1)" style="border-color: var(--primary);">
             
-            <input type="text" id="sysName" placeholder="System Name (e.g. Powershell)">
+            <input type="text" id="sysName" placeholder="System Name (e.g. 3-Antivirus)">
             <div id="quickTapContainer" class="chip-container"></div>
 
             <div class="flex-row">
@@ -138,17 +137,16 @@
         
         <div class="section" style="text-align: center;">
             <p style="color: #aaa; font-size: 15px; margin-top: 0;">
-                Because Android blocks folder reading, simply select <b>all your images</b> at once. The app will organize them into Compliance folders based on the Hostname in the file name!
+                Select all your images. The app will organize them into <b>Compliant / NON-Compliant</b>, and then sort them into <b>SrNo. folders</b> based on the number at the start of your keyword (e.g. 3-Antivirus goes to Sr3 folder). Multi-point files like 23,45-Accounts will be placed in both Sr23 and Sr45 folders!
             </p>
             
-            <!-- Changed from webkitdirectory to a standard multiple file selector -->
             <label class="btn btn-camera" for="orgInput">📂 Select All Audit Images</label>
             <input type="file" id="orgInput" accept="image/*" multiple>
         </div>
 
         <div id="orgResults" class="section hidden" style="text-align: center;">
             <h3 id="orgSummaryTitle">✅ Files Processed</h3>
-            <p id="orgSummaryText" style="color: #aaa;">Found X images across Y hosts.</p>
+            <p id="orgSummaryText" style="color: #aaa;">Found X images.</p>
             <button class="btn btn-zip" id="btnOrgZip" onclick="downloadOrgZip()">📦 Download Organized ZIP</button>
         </div>
     </div>
@@ -176,7 +174,7 @@
         }
 
         // ==========================================
-        // TAB 1 JAVASCRIPT: THE AUDIT SNAPPER
+        // TAB 1 JAVASCRIPT: THE AUDIT SNAPPER (Unchanged)
         // ==========================================
         const screens = {
             start: document.getElementById('startScreen'), review: document.getElementById('reviewScreen'),
@@ -235,11 +233,9 @@
                 screens.review.classList.add('hidden'); screens.finish.classList.remove('hidden');
                 els.zipStatus.innerText = `${processedImages.length} images ready for ZIP.`; return;
             }
-            // Notice els.hostName is NOT cleared! It remembers your desktop name.
             els.sysName.value = ''; els.progress.innerText = `Image ${currentIndex + 1} of ${imageQueue.length}`;
             els.status.innerText = "Compressing..."; 
             
-            // Auto focus the right box
             if(!els.hostName.value) els.hostName.focus(); else els.sysName.focus();
 
             const file = imageQueue[currentIndex]; const img = new Image();
@@ -263,7 +259,6 @@
             
             if (!history.includes(baseName)) { history.push(baseName); localStorage.setItem('auditSysNames', JSON.stringify(history)); renderKeywords(); }
             
-            // Creates a file named like: "[desktop-1] Powershell NON-Compliant.jpg"
             let finalName = isNonCompliant ? `[${hName}] ${baseName} NON-Compliant.jpg` : `[${hName}] ${baseName}.jpg`;
             processedImages.push({ name: finalName, blob: currentCompressedBlob });
             
@@ -285,7 +280,7 @@
 
 
         // ==========================================
-        // TAB 2 JAVASCRIPT: THE NEW ORGANIZER
+        // TAB 2 JAVASCRIPT: THE SR. NO. ORGANIZER
         // ==========================================
         let organizedZip = new JSZip();
         
@@ -294,7 +289,7 @@
             if (files.length === 0) return;
 
             organizedZip = new JSZip(); 
-            let hostnamesFound = new Set();
+            let srFoldersCreated = new Set();
             let validImageCount = 0;
 
             for (let i = 0; i < files.length; i++) {
@@ -302,27 +297,42 @@
                 if (!file.type.startsWith('image/')) continue;
 
                 let fileName = file.name;
-                let hostname = "Unsorted";
                 
-                // Magic Regex: Extracts the text inside the [square brackets]
-                // e.g., "[BEFCPLI] Powershell.jpg" -> Extracts "BEFCPLI"
-                let match = fileName.match(/^\[(.*?)\]/);
-                if (match) {
-                    hostname = match[1];
+                // 1. Strip away the "[hostname] " part so we can look at the real name
+                // e.g. "[desktop-1] 23,45-Accounts.jpg" becomes "23,45-Accounts.jpg"
+                let baseNameWithoutHost = fileName.replace(/^\[.*?\]\s*/, '');
+
+                // 2. Extract the Serial Numbers before the hyphen
+                // Looks for numbers and commas at the very start of the base name
+                let srNumbers = [];
+                let srMatch = baseNameWithoutHost.match(/^(\d+(?:,\s*\d+)*)\s*-/);
+                
+                if (srMatch) {
+                    // Splits "23,45" into ["23", "45"]
+                    let rawNums = srMatch[1].split(',');
+                    srNumbers = rawNums.map(num => num.trim());
+                } else {
+                    // If no number- format is found
+                    srNumbers = ["Unsorted"];
                 }
 
-                hostnamesFound.add(hostname);
-
-                // Determine Compliance
+                // 3. Determine Compliance
                 let isNonCompliant = fileName.toLowerCase().includes('non-compliant');
                 let topFolder = isNonCompliant ? "NON-Compliant" : "Compliant";
 
-                // Build the Zip
-                organizedZip.folder(topFolder).folder(hostname).file(fileName, file);
+                // 4. Put the file into the ZIP (Multiple times if multi-point!)
+                srNumbers.forEach(num => {
+                    let folderName = num === "Unsorted" ? "Unsorted" : `Sr${num}`;
+                    srFoldersCreated.add(folderName);
+                    
+                    // Creates path: "NON-Compliant / Sr23 / [desktop-1] 23,45-Accounts.jpg"
+                    organizedZip.folder(topFolder).folder(folderName).file(fileName, file);
+                });
+                
                 validImageCount++;
             }
 
-            document.getElementById('orgSummaryText').innerText = `Processed ${validImageCount} images across ${hostnamesFound.size} hostnames.`;
+            document.getElementById('orgSummaryText').innerText = `Processed ${validImageCount} images into ${srFoldersCreated.size} unique SrNo. folders.`;
             document.getElementById('orgResults').classList.remove('hidden');
             document.getElementById('btnOrgZip').innerText = '📦 Download Organized ZIP';
         });
@@ -334,7 +344,7 @@
             organizedZip.generateAsync({type:"blob"}).then(function(content) {
                 let a = document.createElement('a');
                 a.href = URL.createObjectURL(content);
-                a.download = `Organized_Audits_${new Date().toISOString().split('T')[0]}.zip`;
+                a.download = `Organized_Audits_SrNo_${new Date().toISOString().split('T')[0]}.zip`;
                 document.body.appendChild(a);
                 a.click();
                 document.body.removeChild(a);
