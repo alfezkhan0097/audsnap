@@ -137,7 +137,7 @@
         
         <div class="section" style="text-align: center;">
             <p style="color: #aaa; font-size: 15px; margin-top: 0;">
-                Select all your images. The app will organize them into <b>Compliant / NON-Compliant</b>, and then sort them into <b>SrNo. folders</b> based on the number at the start of your keyword (e.g. 3-Antivirus goes to Sr3 folder). Multi-point files like 23,45-Accounts will be placed in both Sr23 and Sr45 folders!
+                Select all your images. The app will organize them into <b>Compliant / NON-Compliant</b>, and then sort them into <b>SrNo. folders</b> based on the number at the start of your keyword (e.g. 3-Antivirus goes to Sr3 folder). Multi-point files like 10,42,39-Appblock will be placed in all three folders!
             </p>
             
             <label class="btn btn-camera" for="orgInput">📂 Select All Audit Images</label>
@@ -280,7 +280,7 @@
 
 
         // ==========================================
-        // TAB 2 JAVASCRIPT: THE SR. NO. ORGANIZER
+        // TAB 2 JAVASCRIPT: THE SR. NO. ORGANIZER (UPDATED Regex)
         // ==========================================
         let organizedZip = new JSZip();
         
@@ -298,21 +298,29 @@
 
                 let fileName = file.name;
                 
-                // 1. Strip away the "[hostname] " part so we can look at the real name
-                // e.g. "[desktop-1] 23,45-Accounts.jpg" becomes "23,45-Accounts.jpg"
-                let baseNameWithoutHost = fileName.replace(/^\[.*?\]\s*/, '');
+                // 1. Strip away the "[hostname] " part so we look at the core name
+                let baseNameWithoutHost = fileName.replace(/^\[.*?\]\s*/, '').trim();
 
                 // 2. Extract the Serial Numbers before the hyphen
-                // Looks for numbers and commas at the very start of the base name
+                // SUPER FORGIVING REGEX: Grabs all digits, commas, and spaces right up until it hits a hyphen
+                // Example: "10, 42, 39-Appblock" extracts "10, 42, 39"
                 let srNumbers = [];
-                let srMatch = baseNameWithoutHost.match(/^(\d+(?:,\s*\d+)*)\s*-/);
+                let srMatch = baseNameWithoutHost.match(/^([\d\s,]+)-/);
                 
                 if (srMatch) {
-                    // Splits "23,45" into ["23", "45"]
+                    // Split by comma
                     let rawNums = srMatch[1].split(',');
-                    srNumbers = rawNums.map(num => num.trim());
-                } else {
-                    // If no number- format is found
+                    rawNums.forEach(num => {
+                        let cleanNum = num.trim();
+                        // Only save it if it's an actual number (filters out accidental empty spaces)
+                        if (cleanNum !== "" && !isNaN(cleanNum)) {
+                            srNumbers.push(cleanNum);
+                        }
+                    });
+                } 
+                
+                // If the regex didn't find any numbers, drop it in Unsorted
+                if (srNumbers.length === 0) {
                     srNumbers = ["Unsorted"];
                 }
 
@@ -325,7 +333,7 @@
                     let folderName = num === "Unsorted" ? "Unsorted" : `Sr${num}`;
                     srFoldersCreated.add(folderName);
                     
-                    // Creates path: "NON-Compliant / Sr23 / [desktop-1] 23,45-Accounts.jpg"
+                    // Creates path: "NON-Compliant / Sr10 / [desktop-1] 10,42,39-Appblock.jpg"
                     organizedZip.folder(topFolder).folder(folderName).file(fileName, file);
                 });
                 
